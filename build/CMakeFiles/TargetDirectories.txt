@@ -1,0 +1,7 @@
+/home/niexin/PServer/build/CMakeFiles/server.dir
+/home/niexin/PServer/build/CMakeFiles/edit_cache.dir
+/home/niexin/PServer/build/CMakeFiles/rebuild_cache.dir
+/home/niexin/PServer/build/CMakeFiles/list_install_components.dir
+/home/niexin/PServer/build/CMakeFiles/install.dir
+/home/niexin/PServer/build/CMakeFiles/install/local.dir
+/home/niexin/PServer/build/CMakeFiles/install/strip.dir
