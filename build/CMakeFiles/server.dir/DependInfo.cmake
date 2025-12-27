@@ -8,6 +8,8 @@ set(CMAKE_DEPENDS_LANGUAGES
 
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
+  "/home/niexin/PServer/serial.c" "CMakeFiles/server.dir/serial.c.o" "gcc" "CMakeFiles/server.dir/serial.c.o.d"
+  "/home/niexin/PServer/cam.cpp" "CMakeFiles/server.dir/cam.cpp.o" "gcc" "CMakeFiles/server.dir/cam.cpp.o.d"
   "/home/niexin/PServer/server.cpp" "CMakeFiles/server.dir/server.cpp.o" "gcc" "CMakeFiles/server.dir/server.cpp.o.d"
   )
 

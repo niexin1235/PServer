@@ -174,6 +174,54 @@ server/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/server.dir/build.make CMakeFiles/server.dir/build
 .PHONY : server/fast
 
+cam.o: cam.cpp.o
+.PHONY : cam.o
+
+# target to build an object file
+cam.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/server.dir/build.make CMakeFiles/server.dir/cam.cpp.o
+.PHONY : cam.cpp.o
+
+cam.i: cam.cpp.i
+.PHONY : cam.i
+
+# target to preprocess a source file
+cam.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/server.dir/build.make CMakeFiles/server.dir/cam.cpp.i
+.PHONY : cam.cpp.i
+
+cam.s: cam.cpp.s
+.PHONY : cam.s
+
+# target to generate assembly for a file
+cam.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/server.dir/build.make CMakeFiles/server.dir/cam.cpp.s
+.PHONY : cam.cpp.s
+
+serial.o: serial.c.o
+.PHONY : serial.o
+
+# target to build an object file
+serial.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/server.dir/build.make CMakeFiles/server.dir/serial.c.o
+.PHONY : serial.c.o
+
+serial.i: serial.c.i
+.PHONY : serial.i
+
+# target to preprocess a source file
+serial.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/server.dir/build.make CMakeFiles/server.dir/serial.c.i
+.PHONY : serial.c.i
+
+serial.s: serial.c.s
+.PHONY : serial.s
+
+# target to generate assembly for a file
+serial.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/server.dir/build.make CMakeFiles/server.dir/serial.c.s
+.PHONY : serial.c.s
+
 server.o: server.cpp.o
 .PHONY : server.o
 
@@ -211,6 +259,12 @@ help:
 	@echo "... list_install_components"
 	@echo "... rebuild_cache"
 	@echo "... server"
+	@echo "... cam.o"
+	@echo "... cam.i"
+	@echo "... cam.s"
+	@echo "... serial.o"
+	@echo "... serial.i"
+	@echo "... serial.s"
 	@echo "... server.o"
 	@echo "... server.i"
 	@echo "... server.s"

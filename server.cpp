@@ -1,288 +1,209 @@
+// server.cpp
 #include <iostream>
-#include <pthread.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <cstring>
+#include <sys/wait.h>
+#include <csignal>
+#include <fcntl.h>
 #include <string>
-#include <vector>
-#include <sstream>
-#include <sys/select.h>
 
-// ========================
-// 设备状态全局开关
-// ========================
-volatile bool g_fan_on = false;
-volatile bool g_th_on = false;
-volatile bool g_camera_on = false;
-volatile bool g_ma_on = false;
-
-// ========================
-// 【临时占位实现】获取最新设备数据的接口
-// 请在后续替换为你自己的硬件读取逻辑
-// ========================
-bool get_latest_camera_frame(std::vector<uint8_t>& /*frame*/) {
-    // TODO: 从摄像头读取一帧数据到 frame
-    return false; // 暂时返回 false 表示无数据
+extern "C" {
+#include "serial.h"   // 假设 serial.h 是 C 接口
+#include "cam.h"
 }
 
-bool get_latest_th_data(std::string& data) {
-    // TODO: 读取温湿度，格式化到 data
-    data = "TH_DATA: T=25.0C H=60%";
-    return true;
-}
+#define BUFFER_SIZE 1024
 
-bool get_latest_fan_data(std::string& data) {
-    // TODO: 读取风扇状态
-    data = "FAN_SPEED: 1200 RPM";
-    return true;
-}
+// 全局传感器值（属于业务逻辑）
+int temp_val = 0;
+int wet_val = 0;
+int light_val = 0;
 
-bool get_latest_ma_data(std::string& data) {
-    // TODO: 读取机械臂状态
-    data = "ARM_POS: X=100 Y=200 Z=50";
-    return true;
-}
+void handle_received_string(int clientfd)
+{
+    int serial_fd = serial_init("/dev/ttyS4", 115200);
+    char recv_buffer[BUFFER_SIZE];
+    unsigned char wind_on_buf[11]  = {0x21, 0x01, 0x09, 0x01, 0x57, 0x40, 0x2c, 0x66, 0x00, 0x31, 0x90};
+    unsigned char wind_off_buf[11] = {0x21, 0x01, 0x09, 0x01, 0x57, 0x40, 0x2c, 0x66, 0x00, 0x30, 0x97};
+    unsigned char lock_on_buf[11]  = {0x21, 0x01, 0x09, 0x01, 0x57, 0x40, 0x2e, 0x72, 0x00, 0x31, 0xb5};
+    unsigned char lock_off_buf[11] = {0x21, 0x01, 0x09, 0x01, 0x57, 0x40, 0x2e, 0x72, 0x00, 0x30, 0xb2};
+    unsigned char temp_val_buf[12] = {0};
 
-// ========================
-// 设备任务函数
-// ========================
-void* fan_task(void* param) {
-    (void)param; // 消除警告
-    while (g_fan_on) {
-        usleep(100000);
-    }
-    return nullptr;
-}
+    sleep(1);
 
-void* th_task(void* param) {
-    (void)param;
-    while (g_th_on) {
-        usleep(500000);
-    }
-    return nullptr;
-}
-
-void* camera_task(void* param) {
-    (void)param;
-    while (g_camera_on) {
-        usleep(33000);
-    }
-    return nullptr;
-}
-
-void* ma_task(void* param) {
-    (void)param;
-    while (g_ma_on) {
-        usleep(200000);
-    }
-    return nullptr;
-}
-
-// ========================
-// 辅助函数
-// ========================
-std::vector<std::string> split(const std::string& s, char delimiter) {
-    std::vector<std::string> tokens;
-    std::string token;
-    std::istringstream tokenStream(s);
-    while (std::getline(tokenStream, token, delimiter)) {
-        if (!token.empty()) tokens.push_back(token);
-    }
-    return tokens;
-}
-
-void send_error(int client_sock, const std::string& err_code) {
-    std::string msg = "ERROR: " + err_code + "\n";
-    send(client_sock, msg.c_str(), msg.length(), MSG_NOSIGNAL);
-}
-
-// ========================
-// 主函数
-// ========================
-int main() {
-    const int PORT = 8888;
-    int server_fd, client_fd;
-    struct sockaddr_in address;
-    int opt = 1;
-    int addrlen = sizeof(address);
-
-    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
-        perror("socket failed");
-        exit(EXIT_FAILURE);
-    }
-
-    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
-        perror("setsockopt");
-        exit(EXIT_FAILURE);
-    }
-
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = INADDR_ANY;
-    address.sin_port = htons(PORT);
-
-    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
-        perror("bind failed");
-        exit(EXIT_FAILURE);
-    }
-
-    if (listen(server_fd, 5) < 0) {
-        perror("listen");
-        exit(EXIT_FAILURE);
-    }
-
-    std::cout << "Server listening on port " << PORT << std::endl;
-
-    while (1) {
-        if ((client_fd = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
-            perror("accept");
-            continue;
+    while (true) {
+        int ret = recv(clientfd, recv_buffer, BUFFER_SIZE - 1, 0);
+        if (ret <= 0) {
+            perror("recv");
+            break;
         }
+        recv_buffer[ret] = '\0'; // 确保字符串结尾
 
-        std::cout << "Client connected from "
-                  << inet_ntoa(address.sin_addr) << ":" << ntohs(address.sin_port) << std::endl;
-
-        volatile bool send_camera_rt = false;
-        volatile bool send_th_rt = false;
-        volatile bool send_fan_rt = false;
-        volatile bool send_ma_rt = false;
-
-        char buffer[1024];
-        while (1) {
-            fd_set readfds;
-            FD_ZERO(&readfds);
-            FD_SET(client_fd, &readfds);
-            struct timeval tv = {0, 10000};
-
-            if (send_camera_rt || send_th_rt || send_fan_rt || send_ma_rt) {
-                int activity = select(client_fd + 1, &readfds, nullptr, nullptr, &tv);
-                if (activity > 0 && FD_ISSET(client_fd, &readfds)) {
-                    ssize_t bytes = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
-                    if (bytes <= 0) break;
-                    buffer[bytes] = '\0';
-                } else {
-                    if (send_camera_rt) {
-                        std::vector<uint8_t> frame;
-                        if (get_latest_camera_frame(frame)) {
-                            uint32_t len = htonl(static_cast<uint32_t>(frame.size()));
-                            send(client_fd, &len, sizeof(len), MSG_NOSIGNAL);
-                            send(client_fd, frame.data(), frame.size(), MSG_NOSIGNAL);
-                        }
-                    }
-                    if (send_th_rt) {
-                        std::string data;
-                        if (get_latest_th_data(data)) {
-                            send(client_fd, data.c_str(), data.size(), MSG_NOSIGNAL);
-                            send(client_fd, "\n", 1, MSG_NOSIGNAL);
-                        }
-                    }
-                    if (send_fan_rt) {
-                        std::string data;
-                        if (get_latest_fan_data(data)) {
-                            send(client_fd, data.c_str(), data.size(), MSG_NOSIGNAL);
-                            send(client_fd, "\n", 1, MSG_NOSIGNAL);
-                        }
-                    }
-                    if (send_ma_rt) {
-                        std::string data;
-                        if (get_latest_ma_data(data)) {
-                            send(client_fd, data.c_str(), data.size(), MSG_NOSIGNAL);
-                            send(client_fd, "\n", 1, MSG_NOSIGNAL);
-                        }
-                    }
-                    usleep(30000);
+        if (strcmp(recv_buffer, "wind_on") == 0) {
+            serial_send_exact_nbytes(serial_fd, wind_on_buf, sizeof(wind_on_buf));
+            printf("Received: %s\n", recv_buffer);
+        }
+        else if (strcmp(recv_buffer, "wind_off") == 0) {
+            serial_send_exact_nbytes(serial_fd, wind_off_buf, sizeof(wind_off_buf));
+            printf("Received: %s\n", recv_buffer);
+        }
+        else if (strcmp(recv_buffer, "lock_on") == 0) {
+            serial_send_exact_nbytes(serial_fd, lock_on_buf, sizeof(lock_on_buf));
+            printf("Received: %s\n", recv_buffer);
+        }
+        else if (strcmp(recv_buffer, "lock_off") == 0) {
+            serial_send_exact_nbytes(serial_fd, lock_off_buf, sizeof(lock_off_buf));
+            printf("Received: %s\n", recv_buffer);
+        }
+        else if (strcmp(recv_buffer, "get_temp_val") == 0) {
+            while (true) {
+                serial_recv_exact_nbytes(serial_fd, temp_val_buf, sizeof(temp_val_buf));
+                if (temp_val_buf[6] == 0x2a || temp_val_buf[6] == 0x2e) {
+                    char buf_device[10] = {0};
+                    serial_recv_exact_nbytes(serial_fd, buf_device, 10);
                     continue;
                 }
-            } else {
-                ssize_t bytes = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
-                if (bytes <= 0) break;
-                buffer[bytes] = '\0';
-            }
-
-            std::string cmd(buffer);
-            if (!cmd.empty() && (cmd.back() == '\n' || cmd.back() == '\r')) {
-                cmd.pop_back();
-                if (!cmd.empty() && (cmd.back() == '\r' || cmd.back() == '\n')) {
-                    cmd.pop_back();
+                else if (temp_val_buf[6] == 0x2b) {  // 注意：原代码用了赋值 =，应为比较 ==
+                    temp_val = (int)temp_val_buf[9] + ((int)temp_val_buf[10] >> 4); // 修正位运算逻辑？
+                    wet_val = (int)temp_val_buf[10] + ((int)temp_val_buf[11] >> 4);
+                    printf("temp_val:%d, wet_val:%d\n", temp_val, wet_val);
+                    break;
                 }
-            }
-            if (cmd.empty()) continue;
-
-            std::cout << "Received command: [" << cmd << "]" << std::endl;
-
-            if (cmd.size() >= 4 && cmd.substr(0, 4) == "ERR ") {
-                send_error(client_fd, cmd.substr(4));
-                continue;
-            }
-
-            std::vector<std::string> parts = split(cmd, ' ');
-            std::string dev = parts[0];
-            std::string action = (parts.size() > 1) ? parts[1] : "";
-
-            if (dev == "FA") {
-                if (action == "On") {
-                    g_fan_on = true;
-                    pthread_t tid;
-                    pthread_create(&tid, nullptr, fan_task, nullptr);
-                    pthread_detach(tid);
-                } else if (action == "Off") {
-                    g_fan_on = false;
-                } else if (action == "RT") {
-                    send_fan_rt = true;
+                else if (temp_val_buf[6] == 0x2a) {
+                    light_val = (temp_val_buf[9] * 256 + temp_val_buf[10]) / 2;
+                    printf("light_val:%d\n", light_val);
+                    break;
                 }
-            }
-            else if (dev == "TH") {
-                if (action == "On") {
-                    g_th_on = true;
-                    pthread_t tid;
-                    pthread_create(&tid, nullptr, th_task, nullptr);
-                    pthread_detach(tid);
-                } else if (action == "Off") {
-                    g_th_on = false;
-                } else if (action == "RT") {
-                    send_th_rt = true;
-                }
-            }
-            else if (dev == "CM") {
-                if (action == "On") {
-                    g_camera_on = true;
-                    pthread_t tid;
-                    pthread_create(&tid, nullptr, camera_task, nullptr);
-                    pthread_detach(tid);
-                } else if (action == "Off") {
-                    g_camera_on = false;
-                } else if (action == "RT") {
-                    send_camera_rt = true;
-                } else if (action == "DATAEND" || action == "STOP") {
-                    send_camera_rt = false;
-                    send_th_rt = false;
-                    send_fan_rt = false;
-                    send_ma_rt = false;
-                }
-            }
-            else if (dev == "MA") {
-                if (action == "On") {
-                    g_ma_on = true;
-                    pthread_t tid;
-                    pthread_create(&tid, nullptr, ma_task, nullptr);
-                    pthread_detach(tid);
-                } else if (action == "Off") {
-                    g_ma_on = false;
-                } else if (action == "RT") {
-                    send_ma_rt = true;
-                }
-            }
-            else {
-                std::string msg = "UNKNOWN_COMMAND\n";
-                send(client_fd, msg.c_str(), msg.length(), MSG_NOSIGNAL);
             }
         }
-
-        close(client_fd);
-        std::cout << "Client disconnected." << std::endl;
     }
 
-    close(server_fd);
+    close(clientfd);
+    serial_exit(serial_fd); // 如果 serial.h 提供此函数
+}
+
+int main(int argc, char **argv)
+{
+    if (argc != 3) {
+        std::fprintf(stderr, "Usage: %s <video_device> <port>\n", argv[0]);
+        return -1;
+    }
+
+    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd == -1) {
+        perror("socket");
+        return -1;
+    }
+
+    struct sockaddr_in serveraddr{};
+    serveraddr.sin_family = AF_INET;
+    serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    serveraddr.sin_port = htons(std::atoi(argv[2]));
+
+    if (bind(sockfd, (struct sockaddr *)&serveraddr, sizeof(serveraddr)) == -1) {
+        perror("bind");
+        close(sockfd);
+        return -1;
+    }
+
+    if (listen(sockfd, 10) == -1) {
+        perror("listen");
+        close(sockfd);
+        return -1;
+    }
+
+    std::printf("Waiting for connection...\n");
+    int clientfd = accept(sockfd, nullptr, nullptr);
+    if (clientfd == -1) {
+        perror("accept");
+        close(sockfd);
+        return -1;
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        perror("fork");
+        close(clientfd);
+        close(sockfd);
+        return -1;
+    }
+    else if (pid == 0) {
+        // 子进程：处理命令
+        handle_received_string(clientfd);
+        exit(0);
+    }
+    else {
+        // 父进程：持续拍照并发送
+        unsigned int width = 640, height = 480;
+        while (true) {
+            usleep(50000); // 50ms
+
+            unsigned int size = 0, index = 0, ismjpeg = 0;
+            int fd = camera_init(argv[1], &width, &height, &size, &ismjpeg);
+            if (fd == -1) {
+                std::fprintf(stderr, "Camera init failed\n");
+                break;
+            }
+
+            if (camera_start(fd) == -1) {
+                camera_exit(fd);
+                break;
+            }
+
+            // Drain initial frames
+            void *jpeg_ptr = nullptr;
+            for (int i = 0; i < 8; i++) {
+                if (camera_dqbuf(fd, &jpeg_ptr, &size, &index) == -1 ||
+                    camera_eqbuf(fd, index) == -1) {
+                    camera_stop(fd);
+                    camera_exit(fd);
+                    goto parent_exit;
+                }
+            }
+
+            // Capture one frame
+            if (camera_dqbuf(fd, &jpeg_ptr, &size, &index) == -1) {
+                camera_stop(fd);
+                camera_exit(fd);
+                break;
+            }
+
+            // Save to file (optional)
+            int pixfd = open("1.jpg", O_WRONLY | O_CREAT | O_TRUNC, 0666);
+            if (pixfd != -1) {
+                write(pixfd, jpeg_ptr, size);
+                close(pixfd);
+            }
+
+            // Send size (10 bytes, zero-padded)
+            char size_buf[10] = {0};
+            std::snprintf(size_buf, sizeof(size_buf), "%09d", size); // 9 digits + \0
+            if (write(clientfd, size_buf, 10) != 10) {
+                perror("send size");
+                break;
+            }
+
+            // Send image data
+            if (write(clientfd, jpeg_ptr, size) != (ssize_t)size) {
+                perror("send image");
+                break;
+            }
+
+            camera_eqbuf(fd, index);
+            camera_stop(fd);
+            camera_exit(fd);
+        }
+parent_exit:
+        kill(pid, SIGTERM);
+        wait(nullptr);
+    }
+
+    close(clientfd);
+    close(sockfd);
     return 0;
 }

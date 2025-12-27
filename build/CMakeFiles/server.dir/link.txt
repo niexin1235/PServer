@@ -1,1 +1,1 @@
-/usr/bin/c++ CMakeFiles/server.dir/server.cpp.o -o server 
+/usr/bin/c++ CMakeFiles/server.dir/server.cpp.o CMakeFiles/server.dir/cam.cpp.o CMakeFiles/server.dir/serial.c.o -o server 
